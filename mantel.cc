@@ -69,6 +69,7 @@ int main(int argc, char **argv) {
     void readMapGnuplot(char *s, int &mapSize);
     int  parseCommandLine(int argc, char **argv);
     void initData(char **argv, double *v, double **p, double *f0, double *finalv, int firstArg);
+    void plotMap(char *s, int max, double **f);
 
     // Evaluate the command-line arguments
     firstArg = parseCommandLine(argc, argv); 
@@ -84,6 +85,8 @@ int main(int argc, char **argv) {
 
     // Optimize!
     finalVal = amoeba(p, f0, o.Ndim, tol, y, nEvals, 10000, finalv);
+
+    // plotMap("maptest.dat", o.mapSize, o.f);
     
     // And the results:
     printf("\nSuccess!  Mantel converged to a tolerance of %g in %d steps to a value "
@@ -370,11 +373,11 @@ double interpMap(double x, double y) {
     double val;
 
     if (x < 0.0 || y < 0.0 || x >= (double)o.mapSize - 1.0 || y >= (double)o.mapSize - 1.0) 
-	return(MYHUGE);
+	return(MYHUGE); // put a wall around the map
     else {
 	i = (int)x;
 	j = (int)y;
-	val = bilinearInterp(o.f[i][j], o.f[i+1][j], o.f[i][j+1], o.f[i+1][j+1], x, y);
+	val = bilinearInterp(o.f[i][j], o.f[i+1][j], o.f[i][j+1], o.f[i+1][j+1], x-floor(x), y-floor(y));
 	return(val);
     }
 }
@@ -387,7 +390,7 @@ double y(double *v) {
     char   metricString[MAXSTR];
     FILE   *fp;
     static int iteration=0;
-
+ 
     if (o.dataMode == fileMap) {
 	mapVal = interpMap(v[0], v[1]);
 	metric = mapVal;
@@ -447,5 +450,22 @@ double y(double *v) {
     fprintf(o.fplot, "%g %g %g\n", v[0], v[1], mapVal);
 
     return(metric);
+}
+
+void plotMap(char *s, int max, double **f) {
+    int i, j;
+    FILE *fp;
+
+    bool gnuplot = false;
+
+    fp = safeopen(s, "w");
+    fprintf(stderr, "Writing terrain plotting file \"%s\"\n", s);
+    if (!gnuplot) fprintf(fp, "zone i=%d j=%d f=point\n", max, max);
+    for (j=0; j < max; j++) {
+	for (i=0; i < max; i++)
+	    fprintf(fp, "%05d %05d %16.8le %16.8le\n", i, j, f[i][j], interpMap((double)i, (double)j));
+	if (gnuplot) fprintf(fp, "\n");
+    }
+    fclose(fp);
 }
 
