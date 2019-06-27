@@ -106,18 +106,18 @@ void initData(char **argv, double *v, double **p, double *f0, double *finalv, in
     int I;
     double y(double *v);
 
-    fprintf(stderr, "firstArg = %d\n", firstArg);
+    // fprintf(stderr, "firstArg = %d\n", firstArg);
 
     // Read the commandline parameters
     for (i=0; i < o.Ndim; i++) {
 	I = i + firstArg;
 	if (sscanf(argv[I], "%le", &(v[i])) != 1) {
-	    fprintf(stderr, "Error interpreting %s as a number.\n", argv[i+1]);
+	    fprintf(stderr, "Error interpreting %s as a number.\n", argv[I]);
 	    exit(1);
 	}
     }
 
-    fprintf(stderr, "Finding initial vertex function values\n");
+    fprintf(stderr, "  {Finding initial vertex function values}\n");
     for (i=0; i < o.Ndim+1; i++) {
 	for (j=0; j < o.Ndim; j++) {
 	    p[i][j] = v[j];
@@ -170,7 +170,7 @@ int parseCommandLine(int argc, char **argv) {
     o.Ndim = argc - firstNumericalArgumentIndex;
 
     printf("Using a %d-point simplex in an %d-dimensional space.\n", o.Ndim+1, o.Ndim);
-    printf("Steps are recorded in the file '%s'\n", o.logFile);
+    printf("Steps are recorded in the file '%s'\n\n", o.logFile);
     if (o.dataMode == commandLine) printf("Enter values for y(x1, ..., xn), or 'q' to quit.\n");
     return(firstNumericalArgumentIndex);
 }
@@ -210,7 +210,7 @@ void readMap(char *s, int &mapSize) {
 	do {
 	    clast = c;
 	    c = fgetc(fp);
-	    if (c=='\n') { numnls++; fprintf(stderr, "[nl]"); }
+	    if (c=='\n') { numnls++; /* fprintf(stderr, "[nl]"); */ }
 	} while (!(c=='\n' && clast == '\n') && c != EOF);
 	rewind(fp);
 	mapSize = numnls-1;
@@ -287,23 +287,23 @@ double amoeba(double **p,               // an array of ndim+1 vectors for the ve
 
 	    // Begin a new iteration. First, extrapolate by a factor alpha through the face of the simplex 
             // across from the hgih point, i.e., reflect the simplex from the high point:
-	    fprintf(stderr, "Regular reflection\n");
+	    fprintf(stderr, "  {Regular reflection}\n");
 	    ytry=amotry(p, y, psum, ndim, funk, ihi, nfunk, -alpha); // -alpha because it's a reflection
 	    
 	    if (ytry <= y[ilo]) {
 		// Gives a result better than the best point, so try an additional extrapolation by a factor gamma:
-		fprintf(stderr, "Looking promising--extending in the reflected direction\n");
+		fprintf(stderr, "  {Looking promising--extending in the reflected direction}\n");
 		ytry = amotry(p, y, psum, ndim, funk, ihi, nfunk, gamma); // positive gamme because we are extending
 		// in the same direction.
 	    } else if (ytry >= y[inhi]) {
 		// The reflected point is worse than the second highest, so look for an intermediate lower point, 
 		// i.e., do a one-dimensional contraction
 		ysave = y[ihi];
-		fprintf(stderr, "One-dimensional contraction\n");
+		fprintf(stderr, "  {One-dimensional contraction}\n");
 		ytry  = amotry(p, y, psum, ndim, funk, ihi, nfunk, beta);
 		if (ytry >= ysave) {
 		    // Can't seem to get rid of that high point. Better contract around the lowest (best) point:
-		    fprintf(stderr, "Performing a multidimensional contraction\n");
+		    fprintf(stderr, "  {Performing a multidimensional contraction}\n");
 		    for (i=0; i < mpts; i++) {
 			if (i != ilo) {
 			    for (j=0; j < ndim; j++) {
