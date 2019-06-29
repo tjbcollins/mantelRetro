@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
     // Optimize!
     finalVal = amoeba(p, f0, o.Ndim, tol, y, nEvals, 10000, finalv);
 
-    // plotMap("maptest.dat", o.mapSize, o.f);
+    plotMap("terrain.dat", o.mapSize, o.f);
     
     // And the results:
     printf("\nSuccess!  Mantel converged to a tolerance of %g in %d steps to a value "
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
 	printf("%16.8le%s", finalv[i], i != (o.Ndim-1) ? ", " : "]\n\n");
     
     fclose(o.flog);
-    if (o.dataMode == fileMap) fclose(o.fplot);
+    if (o.dataMode == fileMap || o.dataMode == function) fclose(o.fplot);
     return(0);
 }
 
@@ -128,6 +128,8 @@ void initData(char **argv, double *v, double **p, double *f0, double *finalv, in
 	}
 	f0[i] = y(p[i]);
     }
+
+    fprintf(stderr, "initial coordinates = %g %g\n", v[0], v[1]);
 }
 
 int parseCommandLine(int argc, char **argv) {
@@ -164,8 +166,8 @@ int parseCommandLine(int argc, char **argv) {
 	firstNumericalArgumentIndex += 1;
     } else usageError(argv);
 
-    if (o.dataMode == fileMap) {
-	readMap(o.mapFile, o.mapSize);
+    if (o.dataMode == fileMap || o.dataMode == function) {
+	if (o.dataMode == fileMap) readMap(o.mapFile, o.mapSize);
 	o.fplot = safeopen("f.plt", "w"); // output file which contains the steps of the simplex
     }
 
@@ -221,8 +223,8 @@ void readMap(char *s, int &mapSize) {
     fprintf(stderr, "Opening file \"%s\" and reading %dx%d array\n", 
 	    s, mapSize, mapSize);
     o.f = d2alloc(mapSize, mapSize);
-    for (j=0; j < mapSize; j++)
-	for (i=0; i < mapSize; i++)
+    for (i=0; i < mapSize; i++)
+	for (j=0; j < mapSize; j++)
 	    fscanf(fp, "%le %le %le", &d, &d, &(o.f[i][j]));
     fclose(fp);
 }
@@ -386,14 +388,17 @@ double interpMap(double x, double y) {
 double y(double *v) {
     int    i, tries=0, maxTries=10, varRead=0;
     double metric;
-    double mapVal;
+    double x, y;
     char   metricString[MAXSTR];
     FILE   *fp;
     static int iteration=0;
  
-    if (o.dataMode == fileMap) {
-	mapVal = interpMap(v[0], v[1]);
-	metric = mapVal;
+    if (o.dataMode == function) {
+	x = v[0];
+	y = v[1];
+	metric = 2.0 * exp(-((x-2)*(x-2)+(y-2)*(y-2))/0.25)+sin(2.0*x) * sin(2.0*y);
+    } else if (o.dataMode == fileMap) {
+	metric = interpMap(v[0], v[1]);
     } else {
 	if (o.dataMode == script) {
 	    system("rm mantel.out");
@@ -447,7 +452,7 @@ double y(double *v) {
     }
 
     fprintf(o.flog, "%16.8le\n", metric);
-    fprintf(o.fplot, "%g %g %g\n", v[0], v[1], mapVal);
+    fprintf(o.fplot, "%g %g %g\n", v[0], v[1], metric);
 
     return(metric);
 }
@@ -455,16 +460,29 @@ double y(double *v) {
 void plotMap(char *s, int max, double **f) {
     int i, j;
     FILE *fp;
+    double x, y, z, X, Y;
 
     bool gnuplot = false;
 
     fp = safeopen(s, "w");
     fprintf(stderr, "Writing terrain plotting file \"%s\"\n", s);
     if (!gnuplot) fprintf(fp, "zone i=%d j=%d f=point\n", max, max);
-    for (j=0; j < max; j++) {
+    if (o.dataMode == function) {
+	for (x=0; x < 40.0; x += 0.5) {
+	    for (y=0; y < 40.0; y += 0.5)
+		X = x/10.0; 
+		Y = y/10.0;
+		z = 4.0 * (2.0 * exp(-((X-2)*(X-2)+(Y-2)*(Y-2))/0.25)+sin(2.0*X) * sin(2.0*Y));
+		fprintf(fp, "%g  %g %16.8le\n", x, y, z);
+		if (gnuplot) fprintf(fp, "\n");
+	    }
+    } else {
 	for (i=0; i < max; i++)
-	    fprintf(fp, "%05d %05d %16.8le %16.8le\n", i, j, f[i][j], interpMap((double)i, (double)j));
-	if (gnuplot) fprintf(fp, "\n");
+	    for (j=0; j < max; j++) {
+		fprintf(fp, "%05d %05d %16.8le %16.8le\n", 
+			i, j, f[i][j], interpMap((double)i, (double)j));
+	    if (gnuplot) fprintf(fp, "\n");
+	}
     }
     fclose(fp);
 }
