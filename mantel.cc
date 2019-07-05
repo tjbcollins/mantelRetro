@@ -22,6 +22,7 @@
 #include "myConstants.h"  // constants
 
 static const int MAXSTR=10000; // maximum string size
+static const bool DEBUG=false;
 
 enum dataModeType { commandLine, script, fileMap, function } dataMode;
 enum plotModeType { tecplot, gnuplot } plotMode;
@@ -45,7 +46,7 @@ struct optionType {
 } o;
 
 // The main simplex routine:
-double amoeba(double **p,               // an array of ndim+1 vectors for the vertices of the simplex (ea. with ndim coords)
+double amoeba(double **vlist,           // an array of ndim+1 vectors for the vertices of the simplex (ea. with ndim coords)
 	      double *y,                // the initial values of the function at the vertices
 	      int ndim,                 // the dimensionality of the space
 	      double ftol,              // the tolerance for convergence
@@ -57,7 +58,7 @@ double amoeba(double **p,               // an array of ndim+1 vectors for the ve
 int main(int argc, char **argv) {
     double tol = 1.0e-4;
     double *v;       // The point around which the simplex is generated
-    double **p;      // initial set of simplex vertices generated from v
+    double **vlist;  // initial set of simplex vertices generated from v
     double *f0;      // initial set of function values at the simplex vertices
     double finalVal; // Optimized function value
     double *finalv;  // Final point coordinates
@@ -76,17 +77,17 @@ int main(int argc, char **argv) {
 
     // Allocate memory:
     v      = dalloc(o.Ndim);   // This is the 1-D array containing the points, NR3-style
-    p      = d2alloc(o.Ndim+1, o.Ndim);
+    vlist  = d2alloc(o.Ndim+1, o.Ndim);
     f0     = dalloc(o.Ndim+1); // Initial function values at the simplex vertices
     finalv = dalloc(o.Ndim);
 
     // Initialize memory:
-    initData(argv, v, p, f0, finalv, firstArg);
+    initData(argv, v, vlist, f0, finalv, firstArg);
 
     // Optimize!
-    finalVal = amoeba(p, f0, o.Ndim, tol, y, nEvals, 10000, finalv);
+    finalVal = amoeba(vlist, f0, o.Ndim, tol, y, nEvals, 10000, finalv);
 
-    plotMap("terrain.dat", o.mapSize, o.f);
+    plotMap((char *)"terrain.dat", o.mapSize, o.f);
     
     // And the results:
     printf("\nSuccess!  Mantel converged to a tolerance of %g in %d steps to a value "
@@ -104,7 +105,7 @@ int main(int argc, char **argv) {
 //-----------------------------------------------------------------------------------
 
 // Allocate memory and initialize the simplex prior to calling amoeba:
-void initData(char **argv, double *v, double **p, double *f0, double *finalv, int firstArg) {
+void initData(char **argv, double *v, double **vlist, double *f0, double *finalv, int firstArg) {
     int i, j;        // do-loop variables
     int I;
     double y(double *v);
@@ -123,10 +124,10 @@ void initData(char **argv, double *v, double **p, double *f0, double *finalv, in
     fprintf(stderr, "  {Finding initial vertex function values}\n");
     for (i=0; i < o.Ndim+1; i++) {
 	for (j=0; j < o.Ndim; j++) {
-	    p[i][j] = v[j];
-	    if (j == i-1) p[i][j] *= 1.05;
+	    vlist[i][j] = v[j];
+	    if (j == i-1) vlist[i][j] *= 1.05;
 	}
-	f0[i] = y(p[i]);
+	f0[i] = y(vlist[i]);
     }
 
     fprintf(stderr, "initial coordinates = %g %g\n", v[0], v[1]);
@@ -138,7 +139,7 @@ int parseCommandLine(int argc, char **argv) {
     void readMap(char *s, int &mapSize);
 
     strcpy(o.logFile, "mantel.log");
-    o.flog = safeopen(o.logFile, "w");
+    o.flog = safeopen((char *)o.logFile, (char *)"w");
     o.dataMode = commandLine; 
 
     if (argc == 1) usageError(argv);
@@ -168,7 +169,7 @@ int parseCommandLine(int argc, char **argv) {
 
     if (o.dataMode == fileMap || o.dataMode == function) {
 	if (o.dataMode == fileMap) readMap(o.mapFile, o.mapSize);
-	o.fplot = safeopen("f.plt", "w"); // output file which contains the steps of the simplex
+	o.fplot = safeopen((char *)"f.plt", (char *)"w"); // output file which contains the steps of the simplex
     }
 
     // Set Ndim, the number of dimensions (remember a simplex has N+1 vertices in an N dimensional space):
@@ -203,9 +204,9 @@ void readMap(char *s, int &mapSize) {
     double d;
     char c, clast;
 
-    fp = safeopen(s, "r");
+    fp = safeopen((char *)s, (char *)"r");
     if (o.plotMode == tecplot) {
-	queueup(fp, NULL, "=");
+	queueup(fp, NULL, (char *)"=");
 	fscanf(fp, "%d", &mapSize);
 	while ((c=fgetc(fp)) != '\n');
     } else {
@@ -229,23 +230,30 @@ void readMap(char *s, int &mapSize) {
     fclose(fp);
 }
 
+void printvec(double *v, int d, int N) {
+    int i;
+    fprintf(stderr, "v%d = (", d);
+    for (i=0; i < N; i++) 
+	fprintf(stderr, "%g%s", v[i], i==N-1 ? ")\n" : ", ");
+}
+
 // Simplex minimization of a double-valued function "funk"
-double amoeba(double **p,               // an array of ndim+1 vectors for the vertices of the simplex (ea. with ndim coords)
+double amoeba(double **vlist,           // an array of ndim+1 vectors for the vertices of the simplex (ea. with ndim coords)
 	      double *y,                // the initial values of the function at the vertices
 	      int ndim,                 // the dimensionality of the space
 	      double ftol,              // the tolerance for convergence
 	      double (*funk)(double *), // function being optimized
 	      int &nfunk,               // number of times the function was evaluated
 	      int maxIters,             // max number of iterations
-	      double *final) {          // coordinates of the final optimized point
+	      double *vfinal) {          // coordinates of the final optimized point
 
     int i, j,           // do-loop variables
 	ilo, ihi, inhi, // index in p of the vector with the lowest function value (ilo), highest (ihi) 
 	                // and next highest (inhi)
 	mpts = ndim+1;  // number of simplex vertices
-    double ytry, ysave, sum, rtol, *psum;
+    double ytry, ysave, sum, rtol;
     void nrerror();
-    double amotry(double **p, double *y, double *psum, 
+    double amotry(double **p, double *y, 
 	      int ndim, double (*funk)(double *), int ihi, int &nfunk, 
 		  double fac);
     bool goon = true;
@@ -255,12 +263,16 @@ double amoeba(double **p,               // an array of ndim+1 vectors for the ve
     double beta  = 0.5; // Size of a 1-D contract, used when new point is only better than the current second worst
     double gamma = 2.0; // How far the point gets extended if it gives a good result
     
-    psum  = dalloc(ndim);
     nfunk = 0;
     
-    for (j=0;j < ndim; j++) { for (i=0, sum=0.0; i < mpts; i++) sum += p[i][j]; psum[j] = sum; }
-    
     while (goon) {
+
+	if (DEBUG) {
+	    fprintf(stderr, "-----------------\n");
+	    for (i=0; i < ndim+1; i++)
+		printvec(vlist[i], i, ndim);
+	    fprintf(stderr, "-----------------\n");
+	}
 
 	// Find the lowest (best), second-lowest adn highest points:
 	ilo=0;
@@ -284,43 +296,41 @@ double amoeba(double **p,               // an array of ndim+1 vectors for the ve
 
 	if (rtol < ftol) {
 	    goon = false; 
+	} else if (nfunk >= maxIters) {
+	    fprintf(stderr, "Max number of iterations exceeded in amoeba()");
+	    goon = false;
 	} else {
-	    if (nfunk >= maxIters) {
-		fprintf(stderr, "Max number of iterations exceeded in amoeba()");
-		goon = false;
-	    }
-
 	    // Begin a new iteration. First, extrapolate by a factor alpha through the face of the simplex 
             // across from the hgih point, i.e., reflect the simplex from the high point:
 	    fprintf(stderr, "  {Regular reflection}\n");
-	    ytry=amotry(p, y, psum, ndim, funk, ihi, nfunk, -alpha); // -alpha because it's a reflection
+	    ytry=amotry(vlist, y, ndim, funk, ihi, nfunk, -alpha); // -alpha because it's a reflection
 	    
 	    if (ytry <= y[ilo]) {
 		// Gives a result better than the best point, so try an additional extrapolation by a factor gamma:
 		fprintf(stderr, "  {Looking promising--extending in the reflected direction}\n");
-		ytry = amotry(p, y, psum, ndim, funk, ihi, nfunk, gamma); // positive gamme because we are extending
+		ytry = amotry(vlist, y, ndim, funk, ihi, nfunk, gamma); // positive gamme because we are extending
 		// in the same direction.
 	    } else if (ytry >= y[inhi]) {
 		// The reflected point is worse than the second highest, so look for an intermediate lower point, 
 		// i.e., do a one-dimensional contraction
 		ysave = y[ihi];
 		fprintf(stderr, "  {One-dimensional contraction}\n");
-		ytry  = amotry(p, y, psum, ndim, funk, ihi, nfunk, beta);
+		ytry  = amotry(vlist, y, ndim, funk, ihi, nfunk, beta);
 		if (ytry >= ysave) {
-		    // Can't seem to get rid of that high point. Better contract around the lowest (best) point:
+		    // Can't seem to get rid of that high point. Better contract around the lowest (best) point.
+		    // This is accomplished by replacing each of the points by the midpoint between that point and
+		    // the low point. 
 		    fprintf(stderr, "  {Performing a multidimensional contraction}\n");
 		    for (i=0; i < mpts; i++) {
 			if (i != ilo) {
 			    for (j=0; j < ndim; j++) {
-				psum[j] = 0.5 * (p[i][j] + p[ilo][j]);
-				p[i][j] = psum[j];
+				vlist[i][j] = 0.5 * (vlist[i][j] + vlist[ilo][j]);
 			    }
-			    y[i] = (*funk)(psum);
+			    y[i] = (*funk)(vlist[i]);
 			}
 		    }
 		    nfunk += ndim;
 		    
-		    for (j=0;j < ndim; j++) { for (i=0, sum=0.0; i < mpts; i++) sum += p[i][j]; psum[j] = sum; }
 		}
 	    }
 	}
@@ -331,36 +341,66 @@ double amoeba(double **p,               // an array of ndim+1 vectors for the ve
 	if (y[i] < y[ilo]) ilo = i;
 
     // Copy its coorinates to return to caller
-    for (i=0; i < ndim; i++) final[i] = p[ilo][i];
-
-    free(psum);
+    for (i=0; i < ndim; i++) vfinal[i] = vlist[ilo][i];
 
     // Return lowest function value found
     return(y[ilo]);
 }
 
-// Called by amoeba. Does the reflection about the plane.
-double amotry(double **p, double *y, double *psum, 
-	      int ndim, double (*funk)(double *), int ihi, int &nfunk, 
-	      double fac) {
-    int j;
-    double fac1,fac2,ytry,*ptry,*vector();
-    void nrerror(),free_vector();
+// Called by amoeba. Does the reflection (for negative fac) about the midpoint.
+double amotry(double **vlist,            // list of vectors specifying each vertex
+	      double *y,                 // list of function values at each vertex
+	      int ndim,                  // dimensionality of the space
+	      double (*funk)(double *),  // function being mimimized
+	      int ihi,                   // index in p of the point with the highest value, the one being reflected
+	      int &nfunk,                // number of times the function has been called
+	      double f) {                // factor specifying the reflection/magnification; -1 is volume-preserving reflection
+    int i, j;
+    double fac1,fac2;
+    double ytry; 
+    double *vtry; // the new point being tried
+    double *vmid; // the midpoint of all the points except that with the highest function value (i.e. the one we are trying
+                  // to get rid of)
     
-    ptry = dalloc(ndim);
-    fac1 = (1.0-fac) / ndim;
-    fac2 = fac1-fac;
-    for (j=0; j < ndim; j++) ptry[j] = psum[j] * fac1 - p[ihi][j] * fac2;
-    ytry = (*funk)(ptry);
+    if (DEBUG) {
+	fprintf(stderr, "##-----------------\n");
+	for (int i=0; i < ndim+1; i++)
+	    printvec(vlist[i], i, ndim);
+	fprintf(stderr, "##-----------------\n");
+    }
+
+    vmid = dalloc(ndim);
+    vtry = dalloc(ndim);
+
+    // Find the midpoint: vmid -> Sum{v_i for i != ihi} / ndim
+    for (i=0, vmid[i]=0.0; i < ndim; i++)
+	for (j=0; j < ndim+1; j++)
+	    if (j != ihi) vmid[i] += vlist[j][i] / ((double) ndim);
+
+    // Reflect the hi point across the midpoint: vtry = vmid + f * (vhi - vmid) 
+    // (So if f==1 vtry->vhi; if f==-1 the point is reflected and the simplex volume remains the same.)
+    for (i=0, vtry[i]=0.0; i < ndim; i++)
+	vtry[i] = vmid[i] + f * (vlist[ihi][i] - vmid[i]);
+    
+    ytry = (*funk)(vtry);
     ++(nfunk);
+
+    // If the point is better than the previous worst, keep it:
     if (ytry < y[ihi]) {
 	y[ihi]=ytry;
 	for (j=0; j < ndim; j++) {
-	    psum[j] += ptry[j]-p[ihi][j];
-	    p[ihi][j] = ptry[j];
+	    vlist[ihi][j] = vtry[j];
 	}
     }
-    free(ptry);
+
+    if (DEBUG) {
+	fprintf(stderr, "________\n");
+	printvec(vtry, -1, ndim);
+	fprintf(stderr, "~~~~~~~~\n");
+    }
+
+    free(vtry);
+    free(vmid);
     return(ytry);
 }
 
@@ -402,7 +442,7 @@ double y(double *v) {
     } else {
 	if (o.dataMode == script) {
 	    system("rm mantel.out");
-	    fp = safeopen("mantel.out", "w");
+	    fp = safeopen((char *)"mantel.out", (char *)"w");
 	    for (i=0; i < o.Ndim; i++) fprintf(fp, "%11.4le\n", v[i]);
 	    for (i=0; i < o.Ndim; i++) fprintf(stdout, "v[%d] = %11.4le\n", i, v[i]);
 	    fprintf(stderr, "Executing script '%s'\n", o.script);
@@ -420,7 +460,7 @@ double y(double *v) {
 	}
 	
 	if (o.dataMode == script) {
-	    fp = safeopen("mantel.in", "r");
+	    fp = safeopen((char *)"mantel.in", (char *)"r");
 	    if (fscanf(fp, "%le", &metric) != 1) {
 		printf("Error: contents of 'mantel.in' not a number.\n");
 		fprintf(stderr, "metric: %g\n", metric);
@@ -464,7 +504,7 @@ void plotMap(char *s, int max, double **f) {
 
     bool gnuplot = false;
 
-    fp = safeopen(s, "w");
+    fp = safeopen((char *)s, (char *)"w");
     fprintf(stderr, "Writing terrain plotting file \"%s\"\n", s);
     if (!gnuplot) fprintf(fp, "zone i=%d j=%d f=point\n", max, max);
     if (o.dataMode == function) {
